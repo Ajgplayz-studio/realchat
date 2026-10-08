@@ -149,9 +149,12 @@
         <!-- 2. CHANNELS / NAVIGATION SIDEBAR -->
         <div class="w-60 bg-[#2f3136] flex flex-col shrink-0 border-r border-[#202225]/40">
             <!-- Header (Server Name or Direct Messages Header) -->
-            <div id="sidebar-header" class="h-12 border-b border-[#202225] px-4 flex items-center justify-between font-bold text-white shadow-sm cursor-pointer hover:bg-[#34373c] transition">
+            <div id="sidebar-header" class="h-12 border-b border-[#202225] px-4 flex items-center justify-between font-bold text-white shadow-sm cursor-pointer hover:bg-[#34373c] transition relative group">
                 <span id="current-context-name" class="truncate">Direct Messages</span>
-                <i data-lucide="chevron-down" class="w-4 h-4 text-gray-400"></i>
+                <div id="server-header-actions" class="flex items-center gap-1 hidden">
+                    <button onclick="openInviteModal()" class="p-1 hover:bg-[#4f545c] rounded text-gray-300 hover:text-white" title="Invite People"><i data-lucide="user-plus" class="w-4 h-4"></i></button>
+                </div>
+                <i data-lucide="chevron-down" id="sidebar-chevron" class="w-4 h-4 text-gray-400"></i>
             </div>
 
             <!-- Channels / DM List -->
@@ -282,6 +285,29 @@
         </div>
     </div>
 
+    <!-- Invite Modal -->
+    <div id="modal-invite" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-[#313338] w-full max-w-md rounded-lg p-6 shadow-2xl relative text-white">
+            <h2 class="text-xl font-bold mb-1">Invite friends to <span id="invite-server-name-title" class="text-brand-500">Server</span></h2>
+            <p class="text-xs text-[#949ba4] mb-4">Share this server ID with your friends so they can join.</p>
+            
+            <div class="space-y-3">
+                <label class="block text-xs font-bold uppercase text-[#949ba4]">Server Invite ID</label>
+                <div class="flex gap-2">
+                    <input type="text" id="invite-server-id-input" readonly class="w-full bg-[#1e1f22] border border-transparent rounded p-2.5 text-xs font-mono text-white outline-none select-all">
+                    <button onclick="copyInviteId()" class="bg-brand-500 hover:bg-brand-600 px-4 rounded text-xs font-semibold transition shrink-0 flex items-center gap-1.5">
+                        <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy
+                    </button>
+                </div>
+                <p id="copy-feedback" class="text-xs text-emerald-400 hidden">Copied to clipboard!</p>
+            </div>
+
+            <div class="flex justify-end mt-6 pt-4 bg-[#2b2d31] -mx-6 -mb-6 p-4 rounded-b-lg">
+                <button type="button" onclick="closeModals()" class="px-4 py-2 bg-[#4e5058] hover:bg-[#6d6f78] rounded text-sm font-medium transition">Done</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Create Channel Modal -->
     <div id="modal-create-channel" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4">
         <div class="bg-[#313338] w-full max-w-md rounded-lg p-6 shadow-2xl relative text-white">
@@ -325,7 +351,7 @@
         let supabaseClient = null;
         let currentUser = null;
         let currentProfile = null;
-        let currentServerId = null;
+        let currentServer = null;
         let currentChannelId = null;
         let activeAttachmentUrl = null;
         let activeAuthTab = 'login';
@@ -460,7 +486,6 @@
 
         // Servers & Memberships
         async function loadServers() {
-            // Fetch servers the user is a member of, or owner of
             let servers = [];
             if (currentUser) {
                 const { data: memberRows } = await supabaseClient
@@ -472,7 +497,6 @@
                     servers = memberRows.map(m => m.servers).filter(Boolean);
                 }
 
-                // Also fetch owned servers if not already included
                 const { data: ownedServers } = await supabaseClient
                     .from('servers')
                     .select('*')
@@ -493,7 +517,8 @@
             if (servers.length > 0) {
                 servers.forEach(server => {
                     const btn = document.createElement('button');
-                    btn.className = `group relative w-12 h-12 bg-[#36393f] hover:bg-brand-500 hover:rounded-2xl rounded-[24px] flex items-center justify-center transition-all duration-200 text-white cursor-pointer shadow overflow-hidden ${currentServerId === server.id ? 'bg-brand-500 rounded-2xl' : ''}`;
+                    const isSelected = currentServer && currentServer.id === server.id;
+                    btn.className = `group relative w-12 h-12 bg-[#36393f] hover:bg-brand-500 hover:rounded-2xl rounded-[24px] flex items-center justify-center transition-all duration-200 text-white cursor-pointer shadow overflow-hidden ${isSelected ? 'bg-brand-500 rounded-2xl' : ''}`;
                     btn.onclick = () => selectServer(server);
                     
                     if (server.icon_url) {
@@ -503,10 +528,9 @@
                         btn.innerHTML = `<span class="font-bold text-xs">${initials}</span>`;
                     }
 
-                    // Tooltip
                     const tooltip = document.createElement('div');
                     tooltip.className = 'absolute left-[80px] bg-[#111214] text-white text-xs px-2.5 py-1 rounded shadow-md whitespace-nowrap hidden group-hover:block z-50 font-semibold pointer-events-none';
-                    tooltip.innerText = `${server.name} (ID: ${server.id.substring(0, 8)}...)`;
+                    tooltip.innerText = server.name;
                     btn.appendChild(tooltip);
 
                     listEl.appendChild(btn);
@@ -515,10 +539,11 @@
         }
 
         async function selectHome() {
-            currentServerId = null;
+            currentServer = null;
             currentChannelId = null;
             document.getElementById('server-home-btn').classList.add('bg-brand-500', 'rounded-2xl');
             document.getElementById('current-context-name').innerText = 'Direct Messages';
+            document.getElementById('server-header-actions').classList.add('hidden');
             document.getElementById('chat-header-title').innerText = 'Direct Messages';
             document.getElementById('chat-header-desc').innerText = 'Your private conversations';
             document.getElementById('chat-header-icon').innerText = '@';
@@ -527,9 +552,10 @@
         }
 
         async function selectServer(server) {
-            currentServerId = server.id;
+            currentServer = server;
             document.getElementById('server-home-btn').classList.remove('bg-brand-500', 'rounded-2xl');
             document.getElementById('current-context-name').innerText = server.name;
+            document.getElementById('server-header-actions').classList.remove('hidden');
             
             loadServers();
             await loadServerChannels(server.id);
@@ -568,7 +594,7 @@
             document.getElementById('chat-header-desc').innerText = `Welcome to #${channel.name}!`;
             document.getElementById('message-input').placeholder = `Message #${channel.name}`;
             
-            if (currentServerId) loadServerChannels(currentServerId);
+            if (currentServer) loadServerChannels(currentServer.id);
             await loadMessages(channel.id);
         }
 
@@ -730,7 +756,6 @@
             }]).select().single();
 
             if (data) {
-                // Also add creator as server member
                 await supabaseClient.from('server_members').insert([{
                     server_id: data.id,
                     user_id: currentUser.id
@@ -747,14 +772,12 @@
             const serverId = document.getElementById('join-server-id').value.trim();
             if (!serverId || !currentUser) return;
 
-            // Verify server exists
             const { data: server, error } = await supabaseClient.from('servers').select('*').eq('id', serverId).single();
             if (error || !server) {
                 alert('Server not found with that ID.');
                 return;
             }
 
-            // Insert membership
             await supabaseClient.from('server_members').upsert([{
                 server_id: server.id,
                 user_id: currentUser.id
@@ -765,25 +788,46 @@
             selectServer(server);
         }
 
+        function openInviteModal() {
+            if (!currentServer) return;
+            document.getElementById('invite-server-name-title').innerText = currentServer.name;
+            document.getElementById('invite-server-id-input').value = currentServer.id;
+            document.getElementById('copy-feedback').classList.add('hidden');
+            document.getElementById('modal-invite').classList.remove('hidden');
+        }
+
+        function copyInviteId() {
+            const input = document.getElementById('invite-server-id-input');
+            input.select();
+            input.setSelectionRange(0, 99999);
+            navigator.clipboard.writeText(input.value);
+            
+            const feedback = document.getElementById('copy-feedback');
+            feedback.classList.remove('hidden');
+            setTimeout(() => {
+                feedback.classList.add('hidden');
+            }, 2500);
+        }
+
         function openCreateChannelModal() {
-            if (!currentServerId) return;
+            if (!currentServer) return;
             document.getElementById('modal-create-channel').classList.remove('hidden');
         }
 
         async function createChannelSubmit(e) {
             e.preventDefault();
             const name = document.getElementById('new-channel-name').value;
-            if (!name || !currentServerId) return;
+            if (!name || !currentServer) return;
 
             const { data, error } = await supabaseClient.from('channels').insert([{
-                server_id: currentServerId,
+                server_id: currentServer.id,
                 name: name.toLowerCase().replace(/\s+/g, '-'),
                 type: 'text'
             }]).select().single();
 
             if (data) {
                 closeModals();
-                loadServerChannels(currentServerId);
+                loadServerChannels(currentServer.id);
                 selectChannel(data);
             }
         }
