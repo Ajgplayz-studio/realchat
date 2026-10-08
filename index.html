@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RealChat</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            500: '#5865F2',
+                            600: '#4752C4',
+                        },
+                        discord: {
+                            darkest: '#202225',
+                            dark: '#2f3136',
+                            medium: '#36393f',
+                            light: '#40444b',
+                            text: '#dcddde',
+                            muted: '#8e9297',
+                            header: '#ffffff',
+                            input: '#40444b',
+                            hover: '#34373c',
+                            active: '#393c43'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Supabase JS SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #2e3338;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #202225;
+            border-radius: 4px;
+        }
+        body {
+            font-family: 'Whitney', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            user-select: none;
+        }
+        input, textarea {
+            user-select: text;
+        }
+    </style>
+</head>
+<body class="bg-[#36393f] text-[#dcddde] h-screen w-screen overflow-hidden flex flex-col">
+
+    <!-- TOP BAR WINDOW CONTROLS SIMULATION -->
+    <div class="bg-[#202225] h-7 flex items-center justify-between px-3 text-xs text-[#b9bbbe] select-none shrink-0 border-b border-[#2f3136]">
+        <div class="flex items-center gap-2">
+            <i data-lucide="message-square" class="w-3.5 h-3.5 text-brand-500"></i>
+            <span class="font-semibold text-gray-300">RealChat</span>
+        </div>
+        <div class="flex items-center gap-3">
+            <span id="connection-status" class="flex items-center gap-1.5 text-[10px]">
+                <span class="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" id="status-dot"></span>
+                <span id="status-text">Connecting to Supabase...</span>
+            </span>
+            <div class="flex items-center gap-4 ml-2">
+                <button class="hover:text-white" title="Minimize">&#x2015;</button>
+                <button class="hover:text-white" title="Maximize">&#x25A1;</button>
+                <button class="hover:text-red-400" title="Close">&#x2715;</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN APP CONTAINER -->
+    <div id="app-container" class="flex-1 flex overflow-hidden relative">
+
+        <!-- AUTH VIEW (Overlay if not logged in) -->
+        <div id="auth-overlay" class="absolute inset-0 bg-[#36393f] z-50 flex items-center justify-center p-4">
+            <div class="bg-[#313338] p-8 rounded-lg shadow-2xl w-full max-w-md border border-[#202225]">
+                <div class="text-center mb-6">
+                    <div class="w-16 h-16 bg-brand-500 rounded-full mx-auto flex items-center justify-center text-white mb-3 shadow-lg">
+                        <i data-lucide="message-square" class="w-8 h-8"></i>
+                    </div>
+                    <h2 class="text-2xl font-bold text-white">Welcome to RealChat!</h2>
+                    <p class="text-sm text-[#949ba4] mt-1">Connect with your friends and communities</p>
+                </div>
+
+                <div class="flex border-b border-[#3f4147] mb-6">
+                    <button id="tab-login" onclick="switchAuthTab('login')" class="flex-1 pb-3 text-sm font-semibold text-white border-b-2 border-brand-500">Sign In</button>
+                    <button id="tab-signup" onclick="switchAuthTab('signup')" class="flex-1 pb-3 text-sm font-semibold text-[#949ba4] hover:text-white">Create Account</button>
+                </div>
+
+                <form id="auth-form" onsubmit="handleAuthSubmit(event)" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-[#949ba4] mb-2">Email</label>
+                        <input type="email" id="auth-email" required class="w-full bg-[#1e1f22] border border-transparent focus:border-brand-500 rounded p-2.5 text-sm text-white outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-[#949ba4] mb-2">Password</label>
+                        <input type="password" id="auth-password" required class="w-full bg-[#1e1f22] border border-transparent focus:border-brand-500 rounded p-2.5 text-sm text-white outline-none">
+                    </div>
+                    <div id="signup-fields" class="hidden space-y-4">
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-[#949ba4] mb-2">Username</label>
+                            <input type="text" id="auth-username" class="w-full bg-[#1e1f22] border border-transparent focus:border-brand-500 rounded p-2.5 text-sm text-white outline-none" placeholder="cooluser123">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-[#949ba4] mb-2">Display Name</label>
+                            <input type="text" id="auth-displayname" class="w-full bg-[#1e1f22] border border-transparent focus:border-brand-500 rounded p-2.5 text-sm text-white outline-none" placeholder="Cool User">
+                        </div>
+                    </div>
+                    <div id="auth-error" class="text-red-400 text-xs hidden"></div>
+                    <button type="submit" id="auth-submit-btn" class="w-full bg-brand-500 hover:bg-brand-600 text-white font-medium py-2.5 rounded transition duration-200">Sign In</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- 1. SERVERS SIDEBAR (LEFT) -->
+        <nav class="w-[72px] bg-[#202225] flex flex-col items-center py-3 gap-2 shrink-0 select-none">
+            <!-- Direct Messages Button -->
+            <button onclick="selectHome()" id="server-home-btn" class="group relative w-12 h-12 bg-[#36393f] hover:bg-brand-500 hover:rounded-2xl rounded-[24px] flex items-center justify-center transition-all duration-200 text-white cursor-pointer shadow">
+                <i data-lucide="message-square" class="w-6 h-6"></i>
+                <div id="home-indicator" class="absolute -left-3 w-1 h-2 bg-white rounded-r-full transition-all duration-200 h-0"></div>
+                <div class="absolute left-[80px] bg-[#111214] text-white text-xs px-2.5 py-1 rounded shadow-md whitespace-nowrap hidden group-hover:block z-50 font-semibold pointer-events-none">Direct Messages</div>
+            </button>
+
+            <div class="w-8 h-[2px] bg-[#35363c] rounded my-1"></div>
+
+            <!-- Server List Container -->
+            <div id="servers-list" class="flex-1 w-full flex flex-col items-center gap-2 overflow-y-auto overflow-x-hidden">
+                <!-- Dynamically populated servers -->
+            </div>
+
+            <!-- Add Server Button -->
+            <button onclick="openCreateServerModal()" class="group relative w-12 h-12 bg-[#36393f] hover:bg-emerald-500 hover:rounded-2xl rounded-[24px] flex items-center justify-center transition-all duration-200 text-emerald-500 hover:text-white cursor-pointer shadow">
+                <i data-lucide="plus" class="w-6 h-6"></i>
+                <div class="absolute left-[80px] bg-[#111214] text-white text-xs px-2.5 py-1 rounded shadow-md whitespace-nowrap hidden group-hover:block z-50 font-semibold pointer-events-none">Add a Server</div>
+            </button>
+
+            <!-- Database Inspector Button -->
+            <button onclick="openDbInspector()" class="group relative w-12 h-12 bg-[#36393f] hover:bg-indigo-500 hover:rounded-2xl rounded-[24px] flex items-center justify-center transition-all duration-200 text-indigo-400 hover:text-white cursor-pointer shadow">
+                <i data-lucide="database" class="w-5 h-5"></i>
+                <div class="absolute left-[80px] bg-[#111214] text-white text-xs px-2.5 py-1 rounded shadow-md whitespace-nowrap hidden group-hover:block z-50 font-semibold pointer-events-none">Database Inspector</div>
+            </button>
+        </nav>
+
+        <!-- 2. CHANNELS / NAVIGATION SIDEBAR -->
+        <div class="w-60 bg-[#2f3136] flex flex-col shrink-0 border-r border-[#202225]/40">
+            <!-- Header (Server Name or Direct Messages Header) -->
+            <div id="sidebar-header" class="h-12 border-b border-[#202225] px-4 flex items-center justify-between font-bold text-white shadow-sm cursor-pointer hover:bg-[#34373c] transition">
+                <span id="current-context-name" class="truncate">Direct Messages</span>
+                <i data-lucide="chevron-down" class="w-4 h-4 text-gray-400"></i>
+            </div>
+
+            <!-- Channels / DM List -->
+            <div id="channels-container" class="flex-1 overflow-y-auto p-2 space-y-0.5">
+                <!-- Populated dynamically -->
+            </div>
+
+            <!-- User Profile Bar (Bottom Left) -->
+            <div class="h-14 bg-[#292b2f] px-2 flex items-center justify-between gap-2 shrink-0">
+                <div class="flex items-center gap-2 min-w-0 cursor-pointer hover:bg-[#3a3c42] p-1 rounded transition flex-1" onclick="openProfileModal()">
+                    <div class="relative shrink-0">
+                        <img id="user-avatar" src="https://api.dicebear.com/7.x/bottts/svg?seed=guest" class="w-8 h-8 rounded-full bg-gray-600">
+                        <div class="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-[#292b2f] rounded-full"></div>
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <div id="user-display-name" class="text-xs font-bold text-white truncate">Loading...</div>
+                        <div id="user-username" class="text-[10px] text-[#b9bbbe] truncate">#online</div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1 text-[#b9bbbe]">
+                    <button onclick="openSettingsModal()" class="p-1.5 hover:bg-[#3a3c42] hover:text-white rounded transition" title="User Settings"><i data-lucide="settings" class="w-4 h-4"></i></button>
+                    <button onclick="handleSignOut()" class="p-1.5 hover:bg-[#3a3c42] hover:text-red-400 rounded transition" title="Log Out"><i data-lucide="log-out" class="w-4 h-4"></i></button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. MAIN CHAT AREA -->
+        <main class="flex-1 bg-[#36393f] flex flex-col min-w-0 relative">
+            <!-- Chat Header -->
+            <header class="h-12 border-b border-[#202225]/60 px-4 flex items-center justify-between shadow-sm shrink-0 bg-[#36393f]">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span id="chat-header-icon" class="text-[#8e9297] text-xl font-bold">#</span>
+                    <h3 id="chat-header-title" class="font-bold text-white truncate">select-a-channel</h3>
+                    <span class="text-[#8e9297] text-xs font-normal border-l border-[#4f545c] pl-3 ml-2 truncate" id="chat-header-desc">Welcome to RealChat!</span>
+                </div>
+                <div class="flex items-center gap-3 text-[#b9bbbe]">
+                    <button class="hover:text-white transition"><i data-lucide="phone" class="w-5 h-5"></i></button>
+                    <button class="hover:text-white transition"><i data-lucide="video" class="w-5 h-5"></i></button>
+                    <button class="hover:text-white transition" onclick="toggleMemberList()"><i data-lucide="users" class="w-5 h-5"></i></button>
+                    <div class="relative">
+                        <input type="text" placeholder="Search" class="bg-[#202225] text-xs rounded px-2 py-1 w-36 focus:w-60 transition-all outline-none text-white">
+                        <i data-lucide="search" class="w-3.5 h-3.5 absolute right-2 top-1.5 text-gray-400"></i>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Messages & Content Area -->
+            <div id="messages-scroll" class="flex-1 overflow-y-auto p-4 space-y-4 flex flex-col">
+                <div class="mt-auto pt-8 text-center text-[#8e9297]">
+                    <div class="w-16 h-16 bg-[#4f545c] rounded-full mx-auto flex items-center justify-center text-white mb-3">
+                        <i data-lucide="hash" class="w-8 h-8"></i>
+                    </div>
+                    <h2 class="text-2xl font-bold text-white">Welcome to <span id="welcome-channel-name">RealChat</span>!</h2>
+                    <p class="text-sm mt-1">This is the start of the channel.</p>
+                </div>
+            </div>
+
+            <!-- Message Input Box -->
+            <div class="p-4 bg-[#36393f] shrink-0">
+                <div class="bg-[#40444b] rounded-lg p-2.5 flex items-center gap-3">
+                    <label class="bg-[#4f545c] hover:bg-[#5d6269] text-white p-2 rounded-full cursor-pointer transition flex items-center justify-center">
+                        <i data-lucide="plus" class="w-4 h-4"></i>
+                        <input type="file" id="file-attachment" class="hidden" onchange="handleFileAttachment(event)">
+                    </label>
+                    <input type="text" id="message-input" onkeydown="handleMessageKeyDown(event)" placeholder="Message #general" class="bg-transparent flex-1 text-sm text-white outline-none placeholder-[#8e9297]">
+                    <div class="flex items-center gap-2 text-[#b9bbbe]">
+                        <button class="hover:text-white transition"><i data-lucide="gift" class="w-5 h-5"></i></button>
+                        <button class="hover:text-white transition"><i data-lucide="smile" class="w-5 h-5"></i></button>
+                        <button onclick="sendMessage()" class="bg-brand-500 hover:bg-brand-600 text-white p-1.5 rounded transition"><i data-lucide="send" class="w-4 h-4"></i></button>
+                    </div>
+                </div>
+                <div id="attachment-preview" class="hidden mt-2 p-2 bg-[#2f3136] rounded flex items-center justify-between text-xs">
+                    <span id="attachment-name" class="truncate text-white font-medium">file.png</span>
+                    <button onclick="clearAttachment()" class="text-red-400 hover:underline">Remove</button>
+                </div>
+            </div>
+        </main>
+
+        <!-- 4. MEMBER LIST SIDEBAR (RIGHT - Toggleable) -->
+        <aside id="member-sidebar" class="w-60 bg-[#2f3136] border-l border-[#202225]/40 flex flex-col shrink-0 p-4 overflow-y-auto">
+            <h4 class="text-xs font-bold uppercase text-[#8e9297] mb-2 tracking-wider">Online — <span id="member-count">1</span></h4>
+            <div id="members-list" class="space-y-2">
+                <!-- Populated dynamically -->
+            </div>
+        </aside>
+
+    </div>
+
+    <!-- MODALS -->
+
+    <!-- Create Server Modal -->
+    <div id="modal-create-server" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-[#313338] w-full max-w-md rounded-lg p-6 shadow-2xl relative text-white">
+            <h2 class="text-2xl font-bold text-center mb-2">Create a server</h2>
+            <p class="text-sm text-[#949ba4] text-center mb-6">Your server is where you and your friends hang out. Make yours and start talking.</p>
+            <form onsubmit="createServerSubmit(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold uppercase text-[#949ba4] mb-2">Server Name</label>
+                    <input type="text" id="new-server-name" required class="w-full bg-[#1e1f22] border border-transparent focus:border-brand-500 rounded p-2.5 text-sm text-white outline-none" placeholder="My Awesome Server">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase text-[#949ba4] mb-2">Server Icon URL (Optional)</label>
+                    <input type="text" id="new-server-icon" class="w-full bg-[#1e1f22] border border-transparent focus:border-brand-500 rounded p-2.5 text-sm text-white outline-none" placeholder="https://example.com/icon.png">
+                </div>
+                <div class="flex justify-end gap-3 mt-6 pt-4 bg-[#2b2d31] -mx-6 -mb-6 p-4 rounded-b-lg">
+                    <button type="button" onclick="closeModals()" class="px-4 py-2 text-sm font-medium hover:underline">Cancel</button>
+                    <button type="submit" class="px-6 py-2 bg-brand-500 hover:bg-brand-600 rounded text-sm font-medium transition">Create</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Create Channel Modal -->
+    <div id="modal-create-channel" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-[#313338] w-full max-w-md rounded-lg p-6 shadow-2xl relative text-white">
+            <h2 class="text-2xl font-bold mb-2">Create Channel</h2>
+            <p class="text-sm text-[#949ba4] mb-6">in Text Channels</p>
+            <form onsubmit="createChannelSubmit(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold uppercase text-[#949ba4] mb-2">Channel Type</label>
+                    <div class="flex gap-4">
+                        <label class="flex items-center gap-2 cursor-pointer bg-[#2b2d31] p-3 rounded flex-1 border border-brand-500">
+                            <input type="radio" name="channel-type" value="text" checked class="accent-brand-500">
+                            <i data-lucide="hash" class="w-5 h-5 text-gray-400"></i>
+                            <div>
+                                <div class="text-sm font-bold">Text</div>
+                                <div class="text-[10px] text-[#949ba4]">Post messages, images, opinions</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase text-[#949ba4] mb-2">Channel Name</label>
+                    <div class="relative">
+                        <span class="absolute left-3 top-2.5 text-[#949ba4]">#</span>
+                        <input type="text" id="new-channel-name" required class="w-full bg-[#1e1f22] pl-8 border border-transparent focus:border-brand-500 rounded p-2.5 text-sm text-white outline-none" placeholder="new-channel">
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 mt-6 pt-4 bg-[#2b2d31] -mx-6 -mb-6 p-4 rounded-b-lg">
+                    <button type="button" onclick="closeModals()" class="px-4 py-2 text-sm font-medium hover:underline">Cancel</button>
+                    <button type="submit" class="px-6 py-2 bg-brand-500 hover:bg-brand-600 rounded text-sm font-medium transition">Create Channel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Database Inspector Modal -->
+    <div id="modal-db-inspector" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-[#313338] w-full max-w-4xl h-[80vh] rounded-lg shadow-2xl flex flex-col text-white overflow-hidden">
+            <div class="p-4 bg-[#2b2d31] flex items-center justify-between border-b border-[#1f2023]">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="database" class="text-indigo-400"></i>
+                    <h3 class="font-bold text-lg">Supabase Database Inspector</h3>
+                </div>
+                <button onclick="closeModals()" class="text-gray-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div class="flex border-b border-[#202225] bg-[#2b2d31] px-4 gap-2">
+                <button onclick="loadDbTable('profiles')" class="px-4 py-2 text-xs font-bold text-indigo-400 border-b-2 border-indigo-400 db-tab-btn" data-table="profiles">profiles</button>
+                <button onclick="loadDbTable('servers')" class="px-4 py-2 text-xs font-bold text-gray-400 hover:text-white db-tab-btn" data-table="servers">servers</button>
+                <button onclick="loadDbTable('channels')" class="px-4 py-2 text-xs font-bold text-gray-400 hover:text-white db-tab-btn" data-table="channels">channels</button>
+                <button onclick="loadDbTable('messages')" class="px-4 py-2 text-xs font-bold text-gray-400 hover:text-white db-tab-btn" data-table="messages">messages</button>
+                <button onclick="loadDbTable('dms')" class="px-4 py-2 text-xs font-bold text-gray-400 hover:text-white db-tab-btn" data-table="dms">dms</button>
+            </div>
+            <div class="flex-1 overflow-auto p-4">
+                <div id="db-table-content" class="text-xs font-mono text-gray-300">
+                    Loading table records...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- APPLICATION LOGIC -->
+    <script>
+        // Supabase Credentials
+        const SUPABASE_URL = 'https://umtuzwfuypgcqcaplhbw.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtdHV6d2Z1eXBnY3FjYXBsaGJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0OTE2NjksImV4cCI6MjEwNzA2NzY2OX0.MgU176Wducb3p4Jrl_qeMEtEik-hgnMRgXTiOOpU5EY';
+
+        let supabaseClient = null;
+        let currentUser = null;
+        let currentProfile = null;
+        let currentServerId = null;
+        let currentChannelId = null;
+        let activeAttachmentUrl = null;
+        let activeTab = 'login';
+
+        // Initialize Lucide icons
+        window.addEventListener('DOMContentLoaded', async () => {
+            lucide.createIcons();
+            
+            try {
+                supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                document.getElementById('status-dot').className = 'w-2 h-2 rounded-full bg-emerald-500';
+                document.getElementById('status-text').innerText = 'Connected to Supabase';
+
+                // Check active session
+                const { data: { session } } = await supabaseClient.auth.getSession();
+                if (session) {
+                    currentUser = session.user;
+                    await fetchUserProfile();
+                    document.getElementById('auth-overlay').classList.add('hidden');
+                    initApp();
+                }
+            } catch (err) {
+                console.error('Supabase initialization error:', err);
+                document.getElementById('status-dot').className = 'w-2 h-2 rounded-full bg-red-500';
+                document.getElementById('status-text').innerText = 'Connection Error';
+            }
+        });
+
+        function switchAuthTab(tab) {
+            activeTab = tab;
+            const loginBtn = document.getElementById('tab-login');
+            const signupBtn = document.getElementById('tab-signup');
+            const signupFields = document.getElementById('signup-fields');
+            const submitBtn = document.getElementById('auth-submit-btn');
+
+            if (tab === 'login') {
+                loginBtn.className = 'flex-1 pb-3 text-sm font-semibold text-white border-b-2 border-brand-500';
+                signupBtn.className = 'flex-1 pb-3 text-sm font-semibold text-[#949ba4] hover:text-white';
+                signupFields.classList.add('hidden');
+                submitBtn.innerText = 'Sign In';
+            } else {
+                signupBtn.className = 'flex-1 pb-3 text-sm font-semibold text-white border-b-2 border-brand-500';
+                loginBtn.className = 'flex-1 pb-3 text-sm font-semibold text-[#949ba4] hover:text-white';
+                signupFields.classList.remove('hidden');
+                submitBtn.innerText = 'Create Account';
+            }
+        }
+
+        async function handleAuthSubmit(e) {
+            e.preventDefault();
+            const email = document.getElementById('auth-email').value;
+            const password = document.getElementById('auth-password').value;
+            const errorEl = document.getElementById('auth-error');
+            errorEl.classList.add('hidden');
+
+            try {
+                if (activeTab === 'signup') {
+                    const username = document.getElementById('auth-username').value || email.split('@')[0];
+                    const displayName = document.getElementById('auth-displayname').value || username;
+                    
+                    const { data, error } = await supabaseClient.auth.signUp({
+                        email,
+                        password,
+                        options: {
+                            data: { username, display_name: displayName }
+                        }
+                    });
+                    if (error) throw error;
+                    if (data.user) {
+                        currentUser = data.user;
+                        await fetchUserProfile();
+                        document.getElementById('auth-overlay').classList.add('hidden');
+                        initApp();
+                    }
+                } else {
+                    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+                    if (error) throw error;
+                    if (data.user) {
+                        currentUser = data.user;
+                        await fetchUserProfile();
+                        document.getElementById('auth-overlay').classList.add('hidden');
+                        initApp();
+                    }
+                }
+            } catch (err) {
+                errorEl.innerText = err.message;
+                errorEl.classList.remove('hidden');
+            }
+        }
+
+        async function fetchUserProfile() {
+            if (!currentUser) return;
+            const { data, error } = await supabaseClient
+                .from('profiles')
+                .select('*')
+                .eq('id', currentUser.id)
+                .single();
+            
+            if (data) {
+                currentProfile = data;
+                document.getElementById('user-display-name').innerText = currentProfile.display_name || currentProfile.username;
+                document.getElementById('user-username').innerText = '@' + currentProfile.username;
+                document.getElementById('user-avatar').src = currentProfile.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${currentUser.id}`;
+            }
+        }
+
+        async function handleSignOut() {
+            await supabaseClient.auth.signOut();
+            location.reload();
+        }
+
+        // Main Application Lifecycle
+        async function initApp() {
+            await loadServers();
+            selectHome();
+        }
+
+        // Servers
+        async function loadServers() {
+            const { data: servers, error } = await supabaseClient.from('servers').select('*');
+            const listEl = document.getElementById('servers-list');
+            listEl.innerHTML = '';
+
+            if (servers) {
+                servers.forEach(server => {
+                    const btn = document.createElement('button');
+                    btn.className = `group relative w-12 h-12 bg-[#36393f] hover:bg-brand-500 hover:rounded-2xl rounded-[24px] flex items-center justify-center transition-all duration-200 text-white cursor-pointer shadow overflow-hidden ${currentServerId === server.id ? 'bg-brand-500 rounded-2xl' : ''}`;
+                    btn.onclick = () => selectServer(server);
+                    
+                    if (server.icon_url) {
+                        btn.innerHTML = `<img src="${server.icon_url}" class="w-full h-full object-cover">`;
+                    } else {
+                        const initials = server.name.split(' ').map(w => w[0]).join('').substring(0, 3).toUpperCase();
+                        btn.innerHTML = `<span class="font-bold text-xs">${initials}</span>`;
+                    }
+
+                    // Tooltip
+                    const tooltip = document.createElement('div');
+                    tooltip.className = 'absolute left-[80px] bg-[#111214] text-white text-xs px-2.5 py-1 rounded shadow-md whitespace-nowrap hidden group-hover:block z-50 font-semibold pointer-events-none';
+                    tooltip.innerText = server.name;
+                    btn.appendChild(tooltip);
+
+                    listEl.appendChild(btn);
+                });
+            }
+        }
+
+        async function selectHome() {
+            currentServerId = null;
+            currentChannelId = null;
+            document.getElementById('server-home-btn').classList.add('bg-brand-500', 'rounded-2xl');
+            document.getElementById('home-indicator.style') // reset
+            document.getElementById('current-context-name').innerText = 'Direct Messages';
+            document.getElementById('chat-header-title').innerText = 'Direct Messages';
+            document.getElementById('chat-header-desc').innerText = 'Your private conversations';
+            document.getElementById('chat-header-icon').innerText = '@';
+            
+            // Load DMs list
+            await loadDmsList();
+        }
+
+        async function selectServer(server) {
+            currentServerId = server.id;
+            document.getElementById('server-home-btn').classList.remove('bg-brand-500', 'rounded-2xl');
+            document.getElementById('current-context-name').innerText = server.name;
+            
+            // Highlight server
+            loadServers();
+
+            // Load channels for server
+            await loadServerChannels(server.id);
+        }
+
+        async function loadServerChannels(serverId) {
+            const { data: channels } = await supabaseClient.from('channels').select('*').eq('server_id', serverId);
+            const container = document.getElementById('channels-container');
+            container.innerHTML = `
+                <div class="flex items-center justify-between text-xs font-bold uppercase text-[#8e9297] px-2 py-1 mb-1">
+                    <span>Text Channels</span>
+                    <button onclick="openCreateChannelModal()" class="hover:text-white"><i data-lucide="plus" class="w-4 h-4"></i></button>
+                </div>
+            `;
+
+            if (channels && channels.length > 0) {
+                channels.forEach((ch, idx) => {
+                    if (idx === 0) selectChannel(ch);
+                    const item = document.createElement('div');
+                    item.className = `flex items-center gap-2 px-2 py-1.5 rounded text-sm text-[#8e9297] hover:bg-[#34373c] hover:text-white cursor-pointer transition ${currentChannelId === ch.id ? 'bg-[#393c43] text-white font-semibold' : ''}`;
+                    item.innerHTML = `<i data-lucide="hash" class="w-4 h-4"></i><span class="truncate">${ch.name}</span>`;
+                    item.onclick = () => selectChannel(ch);
+                    container.appendChild(item);
+                });
+            } else {
+                // Auto create #general if none exist
+                await supabaseClient.from('channels').insert([{ server_id: serverId, name: 'general', type: 'text' }]);
+                loadServerChannels(serverId);
+            }
+            lucide.createIcons();
+        }
+
+        async function selectChannel(channel) {
+            currentChannelId = channel.id;
+            document.getElementById('chat-header-title').innerText = channel.name;
+            document.getElementById('welcome-channel-name').innerText = channel.name;
+            document.getElementById('chat-header-desc').innerText = `Welcome to #${channel.name}!`;
+            document.getElementById('message-input').placeholder = `Message #${channel.name}`;
+            
+            if (currentServerId) loadServerChannels(currentServerId);
+            await loadMessages(channel.id);
+        }
+
+        async function loadMessages(channelId) {
+            const scrollContainer = document.getElementById('messages-scroll');
+            const { data: messages } = await supabaseClient
+                .from('messages')
+                .select('*, profiles(username, display_name, avatar_url)')
+                .eq('channel_id', channelId)
+                .order('created_at', { ascending: true });
+
+            scrollContainer.innerHTML = '';
+            if (messages && messages.length > 0) {
+                messages.forEach(msg => {
+                    appendMessageElement(msg);
+                });
+            } else {
+                scrollContainer.innerHTML = `
+                    <div class="mt-auto pt-8 text-center text-[#8e9297]">
+                        <div class="w-16 h-16 bg-[#4f545c] rounded-full mx-auto flex items-center justify-center text-white mb-3">
+                            <i data-lucide="hash" class="w-8 h-8"></i>
+                        </div>
+                        <h2 class="text-2xl font-bold text-white">Welcome to the beginning of this channel!</h2>
+                    </div>
+                `;
+                lucide.createIcons();
+            }
+            scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        }
+
+        function appendMessageElement(msg) {
+            const scrollContainer = document.getElementById('messages-scroll');
+            const user = msg.profiles || { username: 'User', display_name: 'User', avatar_url: '' };
+            const avatar = user.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${msg.user_id}`;
+            const time = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            const div = document.createElement('div');
+            div.className = 'flex gap-4 hover:bg-[#32353b] -mx-4 px-4 py-1 transition group';
+            div.innerHTML = `
+                <img src="${avatar}" class="w-10 h-10 rounded-full bg-gray-600 shrink-0 mt-0.5">
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-baseline gap-2">
+                        <span class="font-semibold text-white hover:underline cursor-pointer">${user.display_name || user.username}</span>
+                        <span class="text-[10px] text-[#949ba4]">${time}</span>
+                    </div>
+                    <div class="text-sm text-[#dcddde] break-words mt-0.5">${msg.content || ''}</div>
+                    ${msg.attachment_url ? `<div class="mt-2"><img src="${msg.attachment_url}" class="max-h-60 rounded border border-[#202225]"></div>` : ''}
+                </div>
+            `;
+            scrollContainer.appendChild(div);
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('message-input');
+            const content = input.value.trim();
+            if ((!content && !activeAttachmentUrl) || !currentChannelId || !currentUser) return;
+
+            const newMsg = {
+                channel_id: currentChannelId,
+                user_id: currentUser.id,
+                content: content,
+                attachment_url: activeAttachmentUrl
+            };
+
+            input.value = '';
+            clearAttachment();
+
+            const { data, error } = await supabaseClient.from('messages').insert([newMsg]).select('*, profiles(username, display_name, avatar_url)').single();
+            if (data) {
+                appendMessageElement(data);
+                const scrollContainer = document.getElementById('messages-scroll');
+                scrollContainer.scrollTop = scrollContainer.scrollHeight;
+            } else if (error) {
+                console.error('Error sending message:', error);
+            }
+        }
+
+        function handleMessageKeyDown(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function handleFileAttachment(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(uploadEvent) {
+                activeAttachmentUrl = uploadEvent.target.result;
+                document.getElementById('attachment-name').innerText = file.name;
+                document.getElementById('attachment-preview').classList.remove('hidden');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function clearAttachment() {
+            activeAttachmentUrl = null;
+            document.getElementById('file-attachment').value = '';
+            document.getElementById('attachment-preview').classList.add('hidden');
+        }
+
+        // Direct Messages View
+        async function loadDmsList() {
+            const container = document.getElementById('channels-container');
+            container.innerHTML = `
+                <div class="text-xs font-bold uppercase text-[#8e9297] px-2 py-1 mb-1">Direct Messages</div>
+                <div class="flex items-center gap-2 px-2 py-2 rounded text-sm text-white bg-[#393c43] font-semibold cursor-pointer">
+                    <i data-lucide="users" class="w-4 h-4"></i><span>Friends & Online</span>
+                </div>
+            `;
+            
+            const scrollContainer = document.getElementById('messages-scroll');
+            scrollContainer.innerHTML = `
+                <div class="p-6">
+                    <h2 class="text-xl font-bold text-white mb-4">Online Friends</h2>
+                    <p class="text-sm text-[#949ba4]">Direct Messaging active. Select a server or chat in channels above!</p>
+                </div>
+            `;
+            lucide.createIcons();
+        }
+
+        // Modals & Navigation
+        function openCreateServerModal() {
+            document.getElementById('modal-create-server').classList.remove('hidden');
+        }
+
+        async function createServerSubmit(e) {
+            e.preventDefault();
+            const name = document.getElementById('new-server-name').value;
+            const iconUrl = document.getElementById('new-server-icon').value;
+            if (!name || !currentUser) return;
+
+            const { data, error } = await supabaseClient.from('servers').insert([{
+                name,
+                icon_url: iconUrl || null,
+                owner_id: currentUser.id
+            }]).select().single();
+
+            if (data) {
+                closeModals();
+                loadServers();
+                selectServer(data);
+            }
+        }
+
+        function openCreateChannelModal() {
+            if (!currentServerId) return;
+            document.getElementById('modal-create-channel').classList.remove('hidden');
+        }
+
+        async function createChannelSubmit(e) {
+            e.preventDefault();
+            const name = document.getElementById('new-channel-name').value;
+            if (!name || !currentServerId) return;
+
+            const { data, error } = await supabaseClient.from('channels').insert([{
+                server_id: currentServerId,
+                name: name.toLowerCase().replace(/\s+/g, '-'),
+                type: 'text'
+            }]).select().single();
+
+            if (data) {
+                closeModals();
+                loadServerChannels(currentServerId);
+                selectChannel(data);
+            }
+        }
+
+        async function openDbInspector() {
+            document.getElementById('modal-db-inspector').classList.remove('hidden');
+            loadDbTable('profiles');
+        }
+
+        async function loadDbTable(tableName) {
+            document.querySelectorAll('.db-tab-btn').forEach(btn => {
+                if (btn.dataset.table === tableName) {
+                    btn.className = 'px-4 py-2 text-xs font-bold text-indigo-400 border-b-2 border-indigo-400 db-tab-btn';
+                } else {
+                    btn.className = 'px-4 py-2 text-xs font-bold text-gray-400 hover:text-white db-tab-btn';
+                }
+            });
+
+            const contentEl = document.getElementById('db-table-content');
+            contentEl.innerText = 'Loading records...';
+
+            const { data, error } = await supabaseClient.from(tableName).select('*');
+            if (error) {
+                contentEl.innerText = 'Error loading table: ' + error.message;
+            } else {
+                contentEl.innerText = JSON.stringify(data, null, 2);
+            }
+        }
+
+        function closeModals() {
+            document.querySelectorAll('[id^="modal-"]').forEach(modal => modal.classList.add('hidden'));
+        }
+
+        function toggleMemberList() {
+            const sidebar = document.getElementById('member-sidebar');
+            sidebar.classList.toggle('hidden');
+        }
+    </script>
+</body>
+</html>
