@@ -234,9 +234,9 @@
 
         <!-- 4. MEMBER LIST SIDEBAR (RIGHT - Toggleable) -->
         <aside id="member-sidebar" class="w-60 bg-[#2f3136] border-l border-[#202225]/40 flex flex-col shrink-0 p-4 overflow-y-auto">
-            <h4 class="text-xs font-bold uppercase text-[#8e9297] mb-2 tracking-wider">Online — <span id="member-count">1</span></h4>
+            <h4 class="text-xs font-bold uppercase text-[#8e9297] mb-2 tracking-wider">Members</h4>
             <div id="members-list" class="space-y-2">
-                <!-- Populated dynamically -->
+                <!-- Populated dynamically with click-to-DM -->
             </div>
         </aside>
 
@@ -353,9 +353,11 @@
         let currentProfile = null;
         let currentServer = null;
         let currentChannelId = null;
+        let currentDmUser = null; // Target user when in DM mode
         let activeAttachmentUrl = null;
         let activeAuthTab = 'login';
         let activeServerModalTab = 'create';
+        let messageSubscription = null;
 
         // Initialize Lucide icons
         window.addEventListener('DOMContentLoaded', async () => {
@@ -541,6 +543,7 @@
         async function selectHome() {
             currentServer = null;
             currentChannelId = null;
+            currentDmUser = null;
             document.getElementById('server-home-btn').classList.add('bg-brand-500', 'rounded-2xl');
             document.getElementById('current-context-name').innerText = 'Direct Messages';
             document.getElementById('server-header-actions').classList.add('hidden');
@@ -553,12 +556,14 @@
 
         async function selectServer(server) {
             currentServer = server;
+            currentDmUser = null;
             document.getElementById('server-home-btn').classList.remove('bg-brand-500', 'rounded-2xl');
             document.getElementById('current-context-name').innerText = server.name;
             document.getElementById('server-header-actions').classList.remove('hidden');
             
             loadServers();
             await loadServerChannels(server.id);
+            await loadServerMembers(server.id);
         }
 
         async function loadServerChannels(serverId) {
@@ -573,9 +578,10 @@
 
             if (channels && channels.length > 0) {
                 channels.forEach((ch, idx) => {
-                    if (idx === 0 && !currentChannelId) selectChannel(ch);
+                    if (idx === 0 && !currentChannelId && !currentDmUser) selectChannel(ch);
                     const item = document.createElement('div');
-                    item.className = `flex items-center gap-2 px-2 py-1.5 rounded text-sm text-[#8e9297] hover:bg-[#34373c] hover:text-white cursor-pointer transition ${currentChannelId === ch.id ? 'bg-[#393c43] text-white font-semibold' : ''}`;
+                    const isSelected = currentChannelId === ch.id && !currentDmUser;
+                    item.className = `flex items-center gap-2 px-2 py-1.5 rounded text-sm text-[#8e9297] hover:bg-[#34373c] hover:text-white cursor-pointer transition ${isSelected ? 'bg-[#393c43] text-white font-semibold' : ''}`;
                     item.innerHTML = `<i data-lucide="hash" class="w-4 h-4"></i><span class="truncate">${ch.name}</span>`;
                     item.onclick = () => selectChannel(ch);
                     container.appendChild(item);
@@ -587,8 +593,62 @@
             lucide.createIcons();
         }
 
+        async function loadServerMembers(serverId) {
+            const { data: members } = await supabaseClient
+                .from('server_members')
+                .select('user_id, profiles(id, username, display_name, avatar_url)')
+                .eq('server_id', serverId);
+
+            const listEl = document.getElementById('members-list');
+            listEl.innerHTML = '';
+
+            if (members && members.length > 0) {
+                members.forEach(m => {
+                    const profile = m.profiles;
+                    if (!profile) return;
+                    const avatar = profile.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${profile.id}`;
+                    
+                    const div = document.createElement('div');
+                    div.className = 'flex items-center gap-2 px-2 py-1.5 rounded hover:bg-[#35373c] cursor-pointer transition group';
+                    div.onclick = () => openDmWithUser(profile);
+                    div.innerHTML = `
+                        <div class="relative shrink-0">
+                            <img src="${avatar}" class="w-8 h-8 rounded-full bg-gray-600">
+                            <div class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-[#2f3136] rounded-full"></div>
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <div class="text-xs font-semibold text-white truncate">${profile.display_name || profile.username}</div>
+                            <div class="text-[10px] text-[#949ba4] truncate">Click to DM</div>
+                        </div>
+                    `;
+                    listEl.appendChild(div);
+                });
+            } else {
+                listEl.innerHTML = '<div class="text-xs text-[#949ba4] px-2">No other members</div>';
+            }
+        }
+
+        async function openDmWithUser(userProfile) {
+            if (userProfile.id === currentUser.id) return; // Can't DM yourself
+            currentServer = null;
+            currentChannelId = null;
+            currentDmUser = userProfile;
+
+            document.getElementById('server-home-btn').classList.remove('bg-brand-500', 'rounded-2xl');
+            document.getElementById('current-context-name').innerText = 'Direct Messages';
+            document.getElementById('server-header-actions').classList.add('hidden');
+            document.getElementById('chat-header-title').innerText = userProfile.display_name || userProfile.username;
+            document.getElementById('chat-header-desc').innerText = `@${userProfile.username} - Direct Message`;
+            document.getElementById('chat-header-icon').innerText = '@';
+            document.getElementById('message-input').placeholder = `Message @${userProfile.username}`;
+
+            await loadDmsList();
+            await loadDmMessages(userProfile.id);
+        }
+
         async function selectChannel(channel) {
             currentChannelId = channel.id;
+            currentDmUser = null;
             document.getElementById('chat-header-title').innerText = channel.name;
             document.getElementById('welcome-channel-name').innerText = channel.name;
             document.getElementById('chat-header-desc').innerText = `Welcome to #${channel.name}!`;
@@ -598,7 +658,56 @@
             await loadMessages(channel.id);
         }
 
+        // Live Realtime Subscriptions for Channels & DMs
+        function subscribeToChannel(channelId) {
+            if (messageSubscription) {
+                supabaseClient.removeChannel(messageSubscription);
+            }
+            messageSubscription = supabaseClient
+                .channel(`public:messages:channel_id=eq.${channelId}`)
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `channel_id=eq.${channelId}` }, async (payload) => {
+                    // Fetch profile info for the incoming message
+                    const { data: msgWithProfile } = await supabaseClient
+                        .from('messages')
+                        .select('*, profiles(username, display_name, avatar_url)')
+                        .eq('id', payload.new.id)
+                        .single();
+                    if (msgWithProfile) {
+                        appendMessageElement(msgWithProfile);
+                        const scrollContainer = document.getElementById('messages-scroll');
+                        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+                    }
+                })
+                .subscribe();
+        }
+
+        function subscribeToDms(targetUserId) {
+            if (messageSubscription) {
+                supabaseClient.removeChannel(messageSubscription);
+            }
+            messageSubscription = supabaseClient
+                .channel(`public:dms`)
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dms' }, async (payload) => {
+                    const msg = payload.new;
+                    if ((msg.sender_id === currentUser.id && msg.receiver_id === targetUserId) ||
+                        (msg.sender_id === targetUserId && msg.receiver_id === currentUser.id)) {
+                        const { data: dmWithProfile } = await supabaseClient
+                            .from('dms')
+                            .select('*, profiles:sender_id(username, display_name, avatar_url)')
+                            .eq('id', msg.id)
+                            .single();
+                        if (dmWithProfile) {
+                            appendDmMessageElement(dmWithProfile);
+                            const scrollContainer = document.getElementById('messages-scroll');
+                            scrollContainer.scrollTop = scrollContainer.scrollHeight;
+                        }
+                    }
+                })
+                .subscribe();
+        }
+
         async function loadMessages(channelId) {
+            subscribeToChannel(channelId);
             const scrollContainer = document.getElementById('messages-scroll');
             const { data: messages } = await supabaseClient
                 .from('messages')
@@ -618,6 +727,35 @@
                             <i data-lucide="hash" class="w-8 h-8"></i>
                         </div>
                         <h2 class="text-2xl font-bold text-white">Welcome to the beginning of this channel!</h2>
+                    </div>
+                `;
+                lucide.createIcons();
+            }
+            scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        }
+
+        async function loadDmMessages(targetUserId) {
+            subscribeToDms(targetUserId);
+            const scrollContainer = document.getElementById('messages-scroll');
+            const { data: dms } = await supabaseClient
+                .from('dms')
+                .select('*, profiles:sender_id(username, display_name, avatar_url)')
+                .or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${targetUserId}),and(sender_id.eq.${targetUserId},receiver_id.eq.${currentUser.id})`)
+                .order('created_at', { ascending: true });
+
+            scrollContainer.innerHTML = '';
+            if (dms && dms.length > 0) {
+                dms.forEach(dm => {
+                    appendDmMessageElement(dm);
+                });
+            } else {
+                scrollContainer.innerHTML = `
+                    <div class="mt-auto pt-8 text-center text-[#8e9297]">
+                        <div class="w-16 h-16 bg-brand-500 rounded-full mx-auto flex items-center justify-center text-white mb-3 shadow-lg">
+                            <i data-lucide="user" class="w-8 h-8"></i>
+                        </div>
+                        <h2 class="text-2xl font-bold text-white">This is the start of your direct message history.</h2>
+                        <p class="text-sm mt-1">Say hello!</p>
                     </div>
                 `;
                 lucide.createIcons();
@@ -647,28 +785,56 @@
             scrollContainer.appendChild(div);
         }
 
+        function appendDmMessageElement(dm) {
+            const scrollContainer = document.getElementById('messages-scroll');
+            const user = dm.profiles || { username: 'User', display_name: 'User', avatar_url: '' };
+            const avatar = user.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${dm.sender_id}`;
+            const time = new Date(dm.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            const div = document.createElement('div');
+            div.className = 'flex gap-4 hover:bg-[#32353b] -mx-4 px-4 py-1 transition group';
+            div.innerHTML = `
+                <img src="${avatar}" class="w-10 h-10 rounded-full bg-gray-600 shrink-0 mt-0.5">
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-baseline gap-2">
+                        <span class="font-semibold text-white hover:underline cursor-pointer">${user.display_name || user.username}</span>
+                        <span class="text-[10px] text-[#949ba4]">${time}</span>
+                    </div>
+                    <div class="text-sm text-[#dcddde] break-words mt-0.5">${dm.content || ''}</div>
+                </div>
+            `;
+            scrollContainer.appendChild(div);
+        }
+
         async function sendMessage() {
             const input = document.getElementById('message-input');
             const content = input.value.trim();
-            if ((!content && !activeAttachmentUrl) || !currentChannelId || !currentUser) return;
+            if ((!content && !activeAttachmentUrl) || !currentUser) return;
 
-            const newMsg = {
-                channel_id: currentChannelId,
-                user_id: currentUser.id,
-                content: content,
-                attachment_url: activeAttachmentUrl
-            };
-
-            input.value = '';
-            clearAttachment();
-
-            const { data, error } = await supabaseClient.from('messages').insert([newMsg]).select('*, profiles(username, display_name, avatar_url)').single();
-            if (data) {
-                appendMessageElement(data);
-                const scrollContainer = document.getElementById('messages-scroll');
-                scrollContainer.scrollTop = scrollContainer.scrollHeight;
-            } else if (error) {
-                console.error('Error sending message:', error);
+            if (currentChannelId) {
+                const newMsg = {
+                    channel_id: currentChannelId,
+                    user_id: currentUser.id,
+                    content: content,
+                    attachment_url: activeAttachmentUrl
+                };
+                input.value = '';
+                clearAttachment();
+                await supabaseClient.from('messages').insert([newMsg]);
+            } else if (currentDmUser) {
+                const newDm = {
+                    sender_id: currentUser.id,
+                    receiver_id: currentDmUser.id,
+                    content: content
+                };
+                input.value = '';
+                clearAttachment();
+                const { data, error } = await supabaseClient.from('dms').insert([newDm]).select('*, profiles:sender_id(username, display_name, avatar_url)').single();
+                if (data) {
+                    appendDmMessageElement(data);
+                    const scrollContainer = document.getElementById('messages-scroll');
+                    scrollContainer.scrollTop = scrollContainer.scrollHeight;
+                }
             }
         }
 
@@ -702,18 +868,38 @@
             const container = document.getElementById('channels-container');
             container.innerHTML = `
                 <div class="text-xs font-bold uppercase text-[#8e9297] px-2 py-1 mb-1">Direct Messages</div>
-                <div class="flex items-center gap-2 px-2 py-2 rounded text-sm text-white bg-[#393c43] font-semibold cursor-pointer">
+                <div class="flex items-center gap-2 px-2 py-2 rounded text-sm text-white ${!currentDmUser ? 'bg-[#393c43] font-semibold' : 'text-[#8e9297] hover:bg-[#34373c] hover:text-white'} cursor-pointer" onclick="selectHome()">
                     <i data-lucide="users" class="w-4 h-4"></i><span>Friends & Online</span>
                 </div>
             `;
             
-            const scrollContainer = document.getElementById('messages-scroll');
-            scrollContainer.innerHTML = `
-                <div class="p-6">
-                    <h2 class="text-xl font-bold text-white mb-4">Online Friends</h2>
-                    <p class="text-sm text-[#949ba4]">Direct Messaging active. Select a server or chat in channels above!</p>
-                </div>
-            `;
+            // Load list of users chatted with or all profiles in DB
+            const { data: profiles } = await supabaseClient.from('profiles').select('*').neq('id', currentUser.id);
+            if (profiles && profiles.length > 0) {
+                const header = document.createElement('div');
+                header.className = 'text-xs font-bold uppercase text-[#8e9297] px-2 py-2 mt-2';
+                header.innerText = 'Direct Conversations';
+                container.appendChild(header);
+
+                profiles.forEach(p => {
+                    const isSelected = currentDmUser && currentDmUser.id === p.id;
+                    const item = document.createElement('div');
+                    item.className = `flex items-center gap-2 px-2 py-1.5 rounded text-sm cursor-pointer transition ${isSelected ? 'bg-[#393c43] text-white font-semibold' : 'text-[#8e9297] hover:bg-[#34373c] hover:text-white'}`;
+                    item.innerHTML = `<img src="${p.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=' + p.id}" class="w-6 h-6 rounded-full bg-gray-600"><span class="truncate">${p.display_name || p.username}</span>`;
+                    item.onclick = () => openDmWithUser(p);
+                    container.appendChild(item);
+                });
+            }
+
+            if (!currentDmUser) {
+                const scrollContainer = document.getElementById('messages-scroll');
+                scrollContainer.innerHTML = `
+                    <div class="p-6">
+                        <h2 class="text-xl font-bold text-white mb-2">Direct Messages</h2>
+                        <p class="text-sm text-[#949ba4]">Click on any user in the server member list on the right, or choose a user from the left sidebar to start direct messaging!</p>
+                    </div>
+                `;
+            }
             lucide.createIcons();
         }
 
@@ -796,7 +982,7 @@
             document.getElementById('modal-invite').classList.remove('hidden');
         }
 
-        function copyInviteId() {
+Fn = function copyInviteId() {
             const input = document.getElementById('invite-server-id-input');
             input.select();
             input.setSelectionRange(0, 99999);
@@ -819,7 +1005,7 @@
             const name = document.getElementById('new-channel-name').value;
             if (!name || !currentServer) return;
 
-            const { data, error } = await supabaseClient.from('channels').insert([{
+            const { data, error } = await supabaseClient.channels.insert([{
                 server_id: currentServer.id,
                 name: name.toLowerCase().replace(/\s+/g, '-'),
                 type: 'text'
